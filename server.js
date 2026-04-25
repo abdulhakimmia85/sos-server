@@ -11,7 +11,7 @@ admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-// 🧾 Logger (upore rakha better)
+// 🧾 Logger
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
@@ -30,7 +30,6 @@ app.post("/send-sos", async (req, res) => {
   if (token) targetTokens.push(token);
   if (Array.isArray(tokens)) targetTokens = targetTokens.concat(tokens);
 
-  // ❌ Validation
   if (!targetTokens.length) {
     return res.status(400).json({ error: "No token(s) provided" });
   }
@@ -59,17 +58,6 @@ app.post("/send-sos", async (req, res) => {
 
     const response = await admin.messaging().sendEachForMulticast(message);
 
-    console.log("✅ SUCCESS:", response.successCount);
-    console.log("❌ FAIL:", response.failureCount);
-
-    if (response.failureCount > 0) {
-      response.responses.forEach((resp, idx) => {
-        if (!resp.success) {
-          console.log("❌ Token error:", targetTokens[idx], resp.error);
-        }
-      });
-    }
-
     res.json({
       success: true,
       successCount: response.successCount,
@@ -81,6 +69,24 @@ app.post("/send-sos", async (req, res) => {
     res.status(500).json({ error: "Server Error" });
   }
 });
+
+
+// 📍 LOCATION API (👉 এটা তোমার missing ছিল)
+app.post("/location", (req, res) => {
+  const { lat, lng, userId } = req.body;
+
+  if (!lat || !lng) {
+    return res.status(400).json({ error: "Location missing" });
+  }
+
+  console.log("📍 Location received:", lat, lng, userId);
+
+  res.json({
+    success: true,
+    message: "Location received successfully",
+  });
+});
+
 
 // 🔥 Render Port
 const PORT = process.env.PORT || 3000;
