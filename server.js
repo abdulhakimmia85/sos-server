@@ -5,35 +5,47 @@ const admin = require("firebase-admin");
 const app = express();
 app.use(bodyParser.json());
 
-// 🔐 Service Account
+// 🔐 Firebase Service Account
 const serviceAccount = require("./serviceAccountKey.json");
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-// 🔥 TEST ROUTE (browser-এ open করলে দেখাবে)
+// 🧪 Health Check
 app.get("/", (req, res) => {
-  res.send("🔥 SOS Server Running");
+  res.status(200).send("🔥 SOS Server Running");
 });
 
-// 🚨 SOS SEND
-app.post("/send-sos", async (req, res) => {
-  const { token } = req.body;
+// 🧾 Simple request logger
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
 
-  if (!token) {
-    return res.status(400).send("❌ Token missing");
+// 🚨 SEND SOS (single or multiple tokens)
+app.post("/send-sos", async (req, res) => {
+  const { token, tokens } = req.body;
+
+  // 🔍 Normalize input
+  let targetTokens = [];
+  if (token) targetTokens.push(token);
+  if (Array.isArray(tokens)) targetTokens = targetTokens.concat(tokens);
+
+  // ❌ Validation
+  if (targetTokens.length === 0) {
+    return res.status(400).json({ error: "No token(s) provided" });
   }
+
+  // 🔁 Remove duplicates
+  targetTokens = [...new Set(targetTokens)];
 
   try {
     const message = {
-      token: token,
-
       notification: {
         title: "🚨 SOS ALERT",
         body: "Emergency! Open app now",
       },
-
       android: {
         priority: "high",
         notification: {
@@ -41,24 +53,41 @@ app.post("/send-sos", async (req, res) => {
           channelId: "sos_channel",
         },
       },
-
       data: {
         type: "sos",
+        click_action: "FLUTTER_NOTIFICATION_CLICK",
       },
+      tokens: targetTokens, // 👈 multicast
     };
 
-    await admin.messaging().send(message);
+    // 🔥 Send to multiple devices
+    const response = await admin.messaging().sendEachForMulticast(message);
 
-    console.log("✅ SOS SENT");
-    res.send("SOS Sent ✅");
+    console.log("✅ SUCCESS:", response.successCount);
+    console.log("❌ FAIL:", response.failureCount);
+
+    // 🔍 Log failed tokens
+    if (response.failureCount > 0) {
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          console.log("❌ Token error:", targetTokens[idx], resp.error);
+        }
+      });
+    }
+
+    return res.json({
+      success: true,
+      successCount: response.successCount,
+      failureCount: response.failureCount,
+    });
 
   } catch (e) {
-    console.log("❌ ERROR:", e);
-    res.status(500).send("Server Error");
+    console.error("❌ FCM ERROR:", e);
+    return res.status(500).json({ error: "Server Error" });
   }
 });
 
-// 🔥 IMPORTANT (Render fix)
+// 🔥 Render PORT FIX
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
