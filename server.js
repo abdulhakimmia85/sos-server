@@ -1,10 +1,12 @@
 const express = require("express");
 const admin = require("firebase-admin");
+const http = require("http");
+const { Server } = require("socket.io");
 
 const app = express();
 app.use(express.json());
 
-// 🔐 Firebase
+// 🔐 Firebase config (ENV থেকে)
 const serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
 
 admin.initializeApp({
@@ -22,7 +24,8 @@ app.get("/", (req, res) => {
   res.status(200).send("🔥 SOS Server Running");
 });
 
-// 🚨 SEND SOS
+
+// 🚨 SEND SOS (FCM Notification)
 app.post("/send-sos", async (req, res) => {
   let { token, tokens } = req.body;
 
@@ -71,26 +74,54 @@ app.post("/send-sos", async (req, res) => {
 });
 
 
-// 📍 LOCATION API (👉 এটা তোমার missing ছিল)
+// 📍 HTTP LOCATION (backup API)
 app.post("/location", (req, res) => {
   const { lat, lng, userId } = req.body;
 
-  if (!lat || !lng) {
-    return res.status(400).json({ error: "Location missing" });
-  }
+  console.log("📍 Location:", lat, lng, userId);
 
-  console.log("📍 Location received:", lat, lng, userId);
+  res.json({ success: true });
+});
 
-  res.json({
-    success: true,
-    message: "Location received successfully",
+
+// =====================================
+// 🔥 REAL-TIME SOCKET.IO SECTION
+// =====================================
+
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: { origin: "*" },
+});
+
+io.on("connection", (socket) => {
+  console.log("🟢 Connected:", socket.id);
+
+  // join room (userId)
+  socket.on("join", (userId) => {
+    socket.join(userId);
+    console.log("📌 Joined:", userId);
+  });
+
+  // receive location
+  socket.on("sendLocation", (data) => {
+    const { userId, lat, lng } = data;
+
+    console.log("📡 Live:", lat, lng);
+
+    // send to receiver
+    io.to(userId).emit("receiveLocation", { lat, lng });
+  });
+
+  socket.on("disconnect", () => {
+    console.log("🔴 Disconnected");
   });
 });
 
 
-// 🔥 Render Port
+// 🔥 Render PORT
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🔥 Server running on port ${PORT}`);
 });
