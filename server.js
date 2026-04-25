@@ -1,15 +1,20 @@
 const express = require("express");
-const bodyParser = require("body-parser");
 const admin = require("firebase-admin");
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
 
-// 🔐 Firebase Service Account
-const serviceAccount = require("./serviceAccountKey.json");
+// 🔐 Firebase
+const serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
+});
+
+// 🧾 Logger (upore rakha better)
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
 });
 
 // 🧪 Health Check
@@ -17,27 +22,19 @@ app.get("/", (req, res) => {
   res.status(200).send("🔥 SOS Server Running");
 });
 
-// 🧾 Simple request logger
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  next();
-});
-
-// 🚨 SEND SOS (single or multiple tokens)
+// 🚨 SEND SOS
 app.post("/send-sos", async (req, res) => {
-  const { token, tokens } = req.body;
+  let { token, tokens } = req.body;
 
-  // 🔍 Normalize input
   let targetTokens = [];
   if (token) targetTokens.push(token);
   if (Array.isArray(tokens)) targetTokens = targetTokens.concat(tokens);
 
   // ❌ Validation
-  if (targetTokens.length === 0) {
+  if (!targetTokens.length) {
     return res.status(400).json({ error: "No token(s) provided" });
   }
 
-  // 🔁 Remove duplicates
   targetTokens = [...new Set(targetTokens)];
 
   try {
@@ -57,16 +54,14 @@ app.post("/send-sos", async (req, res) => {
         type: "sos",
         click_action: "FLUTTER_NOTIFICATION_CLICK",
       },
-      tokens: targetTokens, // 👈 multicast
+      tokens: targetTokens,
     };
 
-    // 🔥 Send to multiple devices
     const response = await admin.messaging().sendEachForMulticast(message);
 
     console.log("✅ SUCCESS:", response.successCount);
     console.log("❌ FAIL:", response.failureCount);
 
-    // 🔍 Log failed tokens
     if (response.failureCount > 0) {
       response.responses.forEach((resp, idx) => {
         if (!resp.success) {
@@ -75,7 +70,7 @@ app.post("/send-sos", async (req, res) => {
       });
     }
 
-    return res.json({
+    res.json({
       success: true,
       successCount: response.successCount,
       failureCount: response.failureCount,
@@ -83,11 +78,11 @@ app.post("/send-sos", async (req, res) => {
 
   } catch (e) {
     console.error("❌ FCM ERROR:", e);
-    return res.status(500).json({ error: "Server Error" });
+    res.status(500).json({ error: "Server Error" });
   }
 });
 
-// 🔥 Render PORT FIX
+// 🔥 Render Port
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
